@@ -7,7 +7,7 @@ import PlayerView from "@/components/furbito/PlayerView";
 import AdminView from "@/components/furbito/AdminView";
 import AuthModal from "@/components/furbito/AuthModal";
 
-import { createField, createReservation, fetchFields, fetchReservations, signIn, signUp, type Field, type Reservation } from "@/lib/api";
+import { createField, createReservation, fetchFields, fetchReservations, signIn, signUp, type Field, type Reservation, type ReservationPayload } from "@/lib/api";
 
 const slotKey = (f: number, d: string, h: string) => `${f}|${d}|${h}`;
 
@@ -36,6 +36,16 @@ const Index = () => {
 
   // estado del horario de las canchas (si está reservado o no)
   const [blockedSlots, setBlockedSlots] = useState<Set<string>>(new Set());
+
+  // precios por horario configurados por el admin
+  const [schedulePrices, setSchedulePrices] = useState<Record<string, number>>(() => {
+    if (typeof window === "undefined") return {};
+    try {
+      return JSON.parse(localStorage.getItem("furbitoSchedulePrices") || "{}") as Record<string, number>;
+    } catch {
+      return {};
+    }
+  });
 
   // Este hook corre al inicio de la página web
   // revisa si el usuario está loggeado, e intenta obtener los datos
@@ -75,7 +85,7 @@ const Index = () => {
   //
   // en caso de que el usuario no esté loggeado
   // devuelve un error
-  const handleReserve = useCallback(async (r: Omit<Reservation, "id" | "status" | "playerId">) => {
+  const handleReserve = useCallback(async (r: ReservationPayload) => {
     try {
       const token = localStorage.getItem("token");
       if (!token) throw new Error("No token");
@@ -218,6 +228,7 @@ const Index = () => {
                 fields={fields}
                 reservations={reservations}
                 blockedSlots={blockedSlots}
+                schedulePrices={schedulePrices}
                 onReserve={handleReserve}
                 isLoggedIn={!!user}
                 onRequireAuth={() => setAuthOpen(true)}
@@ -239,8 +250,22 @@ const Index = () => {
                 fields={fields}
                 reservations={reservations}
                 blockedSlots={blockedSlots}
+                schedulePrices={schedulePrices}
                 onAddCourt={handleAddField}
                 onToggleBlock={handleToggleBlock}
+                onSetSchedulePrice={(fieldId, date, hour, price) => {
+                  const key = slotKey(fieldId, date, hour);
+                  setSchedulePrices((prev) => {
+                    const next = { ...prev };
+                    if (price === undefined) {
+                      delete next[key];
+                    } else {
+                      next[key] = price;
+                    }
+                    localStorage.setItem("furbitoSchedulePrices", JSON.stringify(next));
+                    return next;
+                  });
+                }}
               />
             )}
           </motion.div>

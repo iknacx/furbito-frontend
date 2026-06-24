@@ -4,13 +4,14 @@ import { MapPin, Star, Search, CalendarDays, Users, ArrowRight, X, Clock, Credit
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { COMUNAS, HOURS, formatCLP, todayISO, type Field, type Reservation } from "@/lib/api";
+import { COMUNAS, HOURS, formatCLP, todayISO, type Field, type Reservation, type ReservationPayload } from "@/lib/api";
 
 interface Props {
   fields: Field[];
   reservations: Reservation[];
   blockedSlots: Set<string>; // courtId|date|hour
-  onReserve: (r: Omit<Reservation, "id" | "status" | "playerId">) => Promise<void>;
+  schedulePrices: Record<string, number>;
+  onReserve: (r: ReservationPayload) => Promise<void>;
   isLoggedIn: boolean;
   onRequireAuth: () => void;
 }
@@ -20,7 +21,7 @@ const slotKey = (fieldId: number, date: string, hour: string) => `${fieldId}|${d
 // Apartado principal
 // se muestra el banner con el mensaje
 // junto con la busqueda de canchas disponibles
-export default function HomeView({ fields, reservations, blockedSlots, onReserve, isLoggedIn, onRequireAuth }: Props) {
+export default function HomeView({ fields, reservations, blockedSlots, schedulePrices, onReserve, isLoggedIn, onRequireAuth }: Props) {
   const [date, setDate] = useState(todayISO());
 
   // filtro para la busqueda por ubicación
@@ -41,8 +42,16 @@ export default function HomeView({ fields, reservations, blockedSlots, onReserve
       return matchLocation && matchQuery;
     });
   }, [fields, location, query]);
-
+  const hasDateOverride = (fieldId: number) => {
+    return HOURS.some((hour) => schedulePrices[slotKey(fieldId, date, hour)] !== undefined);
+  };
   // Si el bloque de horario ya está tomado, mostrarlo como bloquedado
+  const getSlotPrice = (fieldId: number, hour: string) => {
+    const override = schedulePrices[slotKey(fieldId, date, hour)];
+    const field = fields.find((f) => f.id === fieldId);
+    return override ?? field?.price ?? 0;
+  };
+
   const isSlotTaken = (fieldId: number, hour: string) => {
     if (blockedSlots.has(slotKey(fieldId, date, hour))) return "blocked";
     const taken = reservations.some(
@@ -63,7 +72,7 @@ export default function HomeView({ fields, reservations, blockedSlots, onReserve
       fieldId: selectedField.id,
       date,
       hour: selectedSlot,
-      price: selectedField.price,
+      price: getSlotPrice(selectedField.id, selectedSlot),
     });
     // mostrar confirmación al usuario
     toast.success("¡Reserva confirmada!", {
@@ -177,11 +186,18 @@ export default function HomeView({ fields, reservations, blockedSlots, onReserve
                     <MapPin className="w-3.5 h-3.5" /> {c.location}
                   </p>
                 </div>
-                <div className="flex items-center justify-between text-sm">
+                <div className="flex items-center justify-between text-sm gap-2">
                   <span className="flex items-center gap-1 text-muted-foreground">
                     <Users className="w-3.5 h-3.5" /> {c.capacity}
                   </span>
-                  <span className="font-bold text-primary">{formatCLP(c.price)}<span className="text-xs text-muted-foreground font-normal">/hr</span></span>
+                  <div className="text-right">
+                    <span className="font-bold text-primary">{formatCLP(c.price)}<span className="text-xs text-muted-foreground font-normal">/hr</span></span>
+                    {hasDateOverride(c.id) && (
+                      <div className="mt-1 text-[11px] uppercase tracking-[0.12em] text-primary/80 font-semibold">
+                        Precios horarios activos
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <Button onClick={() => setSelectedField(c)} className="w-full gradient-hero text-primary-foreground group">
                   Ver disponibilidad
@@ -226,7 +242,7 @@ export default function HomeView({ fields, reservations, blockedSlots, onReserve
                       className="bg-card border border-border rounded-md px-2 py-1 text-sm"
                     />
                   </div>
-                  <span className="text-sm font-bold text-primary">{formatCLP(selectedField.price)}/hr</span>
+                  <span className="text-sm font-bold text-primary">{formatCLP(getSlotPrice(selectedField.id, selectedSlot ?? HOURS[0]))}/hr</span>
                 </div>
 
                 <div>
@@ -252,7 +268,10 @@ export default function HomeView({ fields, reservations, blockedSlots, onReserve
                                 : "bg-destructive/10 text-destructive border-destructive/30 cursor-not-allowed"
                             }`}
                         >
-                          {h}
+                          <div className="flex flex-col items-center gap-1">
+                            <span>{h}</span>
+                            <span className="text-[11px] text-muted-foreground">{formatCLP(getSlotPrice(selectedField.id, h))}</span>
+                          </div>
                           {state === "blocked" && (
                             <span className="absolute -top-1 -right-1 text-[9px] bg-destructive text-destructive-foreground px-1 rounded">M</span>
                           )}
@@ -282,7 +301,7 @@ export default function HomeView({ fields, reservations, blockedSlots, onReserve
                         <div><span className="text-muted-foreground">Cancha:</span><br /><span className="font-medium">{selectedField.name}</span></div>
                         <div><span className="text-muted-foreground">Fecha:</span><br /><span className="font-medium">{date}</span></div>
                         <div><span className="text-muted-foreground">Hora:</span><br /><span className="font-medium">{selectedSlot} hrs</span></div>
-                        <div><span className="text-muted-foreground">Total:</span><br /><span className="font-bold text-primary text-lg">{formatCLP(selectedField.price)}</span></div>
+                        <div><span className="text-muted-foreground">Total:</span><br /><span className="font-bold text-primary text-lg">{formatCLP(selectedSlot ? getSlotPrice(selectedField.id, selectedSlot) : selectedField.price)}</span></div>
                       </div>
                       <div className="flex items-center gap-2 text-xs text-muted-foreground bg-background/60 rounded-lg p-2">
                         <CreditCard className="w-3.5 h-3.5" /> Pago seguro al confirmar (Webpay / MercadoPago)

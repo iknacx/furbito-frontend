@@ -29,6 +29,8 @@ export type Reservation = {
   status: "confirmed" | "canceled" | "completed";
 };
 
+export type ReservationPayload = Pick<Reservation, "fieldId" | "date" | "hour" | "price">;
+
 export const signUp = async (userData: any) => {
   const res = await fetch(`${BASE_URL}/api/signup`, {
     method: "POST",
@@ -84,7 +86,7 @@ export const fetchReservations = async (token: string): Promise<Reservation[]> =
 
 }
 
-export const createReservation = async (reservation: Omit<Reservation, 'id' | 'status' | 'playerId'>, token: string) => {
+export const createReservation = async (reservation: ReservationPayload, token: string) => {
   const res = await fetch(`${BASE_URL}/api/reservations`, {
     method: "POST",
     headers: {

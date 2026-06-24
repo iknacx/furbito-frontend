@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { CalendarDays, DollarSign, MapPin, Plus, Trophy, Ban, Activity, Clock, User as UserIcon, Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -11,18 +11,28 @@ interface Props {
   fields: Field[];
   reservations: Reservation[];
   blockedSlots: Set<string>;
-  onAddCourt: (c: Omit<Field, "id" | "rating">) => void;
+  schedulePrices: Record<string, number>;
+  onAddCourt: (c: Omit<Field, "id" | "ownerId" | "ownerName" | "rating" | "latitude" | "longitude">) => void;
   onToggleBlock: (fieldId: number, date: string, hour: string) => void;
+  onSetSchedulePrice: (fieldId: number, date: string, hour: string, price?: number) => void;
 }
 
 const slotKey = (fId: number, date: string, hour: string) => `${fId}|${date}|${hour}`;
 
-export default function AdminView({ fields, reservations, blockedSlots, onAddCourt, onToggleBlock }: Props) {
+export default function AdminView({ fields, reservations, blockedSlots, schedulePrices, onAddCourt, onToggleBlock, onSetSchedulePrice }: Props) {
   const [addOpen, setAddOpen] = useState(false);
 
   // campos para configurar los bloques de horario de las respectivas canchas
   const [scheduleDate, setScheduleDate] = useState(todayISO());
   const [scheduleField, setScheduleField] = useState(fields[0]?.id || 0);
+  const [priceInputs, setPriceInputs] = useState<Record<string, string>>({});
+
+  const selectedField = fields.find((field) => field.id === scheduleField);
+
+  useEffect(() => {
+    const basePrice = selectedField?.price ?? 0;
+    setPriceInputs(Object.fromEntries(HOURS.map((hour) => [hour, String(schedulePrices[slotKey(scheduleField, scheduleDate, hour)] ?? basePrice)])));
+  }, [selectedField, scheduleDate, scheduleField, schedulePrices]);
 
   const today = todayISO();
 
@@ -198,6 +208,55 @@ export default function AdminView({ fields, reservations, blockedSlots, onAddCou
               );
             })}
           </div>
+
+          <div className="bg-card border border-border rounded-2xl p-4 shadow-card">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+              <div>
+                <p className="text-sm text-muted-foreground">Precio base estándar</p>
+                <p className="text-xl font-semibold">{selectedField ? formatCLP(selectedField.price) : "$0"}</p>
+              </div>
+              <p className="text-sm text-muted-foreground">Modifica el precio por hora para esta cancha y fecha.</p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+              {HOURS.map((h) => {
+                const currentKey = slotKey(scheduleField, scheduleDate, h);
+                const currentPrice = selectedField ? schedulePrices[currentKey] ?? selectedField.price : 0;
+                const overridden = schedulePrices[currentKey] !== undefined;
+                return (
+                  <div key={h} className="rounded-3xl border border-border bg-secondary p-3">
+                    <div className="flex items-center justify-between mb-2 text-sm text-muted-foreground">
+                      <span>{h}</span>
+                      {overridden && <span className="rounded-full bg-primary/10 text-primary px-2 py-0.5 text-[11px]">modificado</span>}
+                    </div>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={priceInputs[h] ?? ""}
+                      onChange={(e) => setPriceInputs((prev) => ({ ...prev, [h]: e.target.value }))}
+                      onBlur={() => {
+                        const parsed = Number(priceInputs[h]);
+                        if (Number.isNaN(parsed) || parsed < 0) return;
+
+                        if (selectedField) {
+                          const basePrice = selectedField.price;
+                          if (parsed === basePrice) {
+                            onSetSchedulePrice(scheduleField, scheduleDate, h, undefined);
+                            toast.success("Precio restaurado", { description: `${h} hereda el precio base ${formatCLP(basePrice)}` });
+                          } else {
+                            onSetSchedulePrice(scheduleField, scheduleDate, h, parsed);
+                            toast.success("Precio actualizado", { description: `${h} ahora cuesta ${formatCLP(parsed)}` });
+                          }
+                        }
+                      }}
+                      className="w-full"
+                    />
+                    <p className="mt-2 text-xs text-muted-foreground">Actual: {formatCLP(currentPrice)}</p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
       </section>
 
@@ -208,7 +267,7 @@ export default function AdminView({ fields, reservations, blockedSlots, onAddCou
 
 // Al apretar el botón para añadir cancha, se abre este dialogo
 // para introducir la información de la cancha
-function AddFieldDialog({ open, onClose, onAdd }: { open: boolean; onClose: () => void; onAdd: (c: Omit<Field, "id" | "rating">) => void }) {
+function AddFieldDialog({ open, onClose, onAdd }: { open: boolean; onClose: () => void; onAdd: (c: Omit<Field, "id" | "ownerId" | "ownerName" | "rating" | "latitude" | "longitude">) => void }) {
   const [name, setName] = useState("");
   const [location, setLocation] = useState("Providencia");
   const [surface, setSurface] = useState<Field["surface"]>("Sintética");
