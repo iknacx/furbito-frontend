@@ -35,7 +35,15 @@ const Index = () => {
   const [reservations, setReservations] = useState<Reservation[]>([]);
 
   // estado del horario de las canchas (si está reservado o no)
-  const [blockedSlots, setBlockedSlots] = useState<Set<string>>(new Set());
+  const [blockedSlots, setBlockedSlots] = useState<Set<string>>(() => {
+    if (typeof window === "undefined") return new Set();
+    try {
+      const stored = localStorage.getItem("furbitoBlockedSlots");
+      return new Set(stored ? JSON.parse(stored) : []);
+    } catch {
+      return new Set();
+    }
+  });
 
   // precios por horario configurados por el admin
   const [schedulePrices, setSchedulePrices] = useState<Record<string, number>>(() => {
@@ -192,6 +200,10 @@ const Index = () => {
       const k = slotKey(fieldId, date, hour);
       const next = new Set(prev);
       next.has(k) ? next.delete(k) : next.add(k);
+      
+      // Guardar en localStorage
+      localStorage.setItem("furbitoBlockedSlots", JSON.stringify(Array.from(next)));
+      
       return next;
     });
   }, []);
