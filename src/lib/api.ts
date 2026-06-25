@@ -29,6 +29,7 @@ export type Reservation = {
   status: "confirmed" | "canceled" | "completed";
 };
 
+
 export type ReservationPayload = Pick<Reservation, "fieldId" | "date" | "hour" | "price">;
 
 export const signUp = async (userData: any) => {
@@ -97,6 +98,46 @@ export const createReservation = async (reservation: ReservationPayload, token: 
   });
 
   if (!res.ok) throw new Error("Failed to create reservation");
+  return res.json();
+}
+
+export const toggleBlockedSlot = async (fieldId: number, date: string, hour: string, token: string) => {
+  const res = await fetch(`${BASE_URL}/api/fields/${fieldId}/blocked-slots`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${token}`
+    },
+    body: JSON.stringify({ date, hour }),
+  });
+
+  if (!res.ok) throw new Error("Failed to toggle blocked slot");
+  return res.json();
+};
+
+export const fetchBlockedSlots = async (token: string): Promise<Set<string>> => {
+  try {
+    const res = await fetch(`${BASE_URL}/api/blocked-slots`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (!res.ok) throw new Error("Failed to fetch blocked slots");
+    const data = await res.json();
+    return new Set(data);
+  } catch (err) {
+    console.error("Failed to fetch blocked slots:", err);
+    return new Set();
+  }
+};
+
+export const cancelReservation = async (id: number, token: string) => {
+  const res = await fetch(`${BASE_URL}/api/reservations/${id}`, {
+    method: "DELETE",
+    headers: {
+      "Authorization": `Bearer ${token}`,
+    },
+  });
+
+  if (!res.ok) throw new Error("Failed to cancel reservation");
   return res.json();
 }
 

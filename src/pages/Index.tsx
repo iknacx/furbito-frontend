@@ -7,7 +7,8 @@ import PlayerView from "@/components/furbito/PlayerView";
 import AdminView from "@/components/furbito/AdminView";
 import AuthModal from "@/components/furbito/AuthModal";
 
-import { createField, createReservation, fetchFields, fetchReservations, signIn, signUp, type Field, type Reservation, type ReservationPayload } from "@/lib/api";
+import { createField, createReservation, fetchFields, fetchReservations, cancelReservation, signIn, signUp, type Field, type Reservation, type ReservationPayload } from "@/lib/api";
+import { toast } from "sonner";
 
 const slotKey = (f: number, d: string, h: string) => `${f}|${d}|${h}`;
 
@@ -35,7 +36,15 @@ const Index = () => {
   const [reservations, setReservations] = useState<Reservation[]>([]);
 
   // estado del horario de las canchas (si está reservado o no)
-  const [blockedSlots, setBlockedSlots] = useState<Set<string>>(new Set());
+  const [blockedSlots, setBlockedSlots] = useState<Set<string>>(() => {
+    if (typeof window === "undefined") return new Set();
+    try {
+      const stored = localStorage.getItem("furbitoBlockedSlots");
+      return new Set(stored ? JSON.parse(stored) : []);
+    } catch {
+      return new Set();
+    }
+  });
 
   // precios por horario configurados por el admin
   const [schedulePrices, setSchedulePrices] = useState<Record<string, number>>(() => {
@@ -147,18 +156,36 @@ const Index = () => {
   }, []);
 
 
-  // TODO: implementar cancelReservation en api.ts
+  // Cancelar reserva: llama a la API para eliminar la reserva y libera el horario
   const handleCancel = useCallback(async (id: number) => {
     const token = localStorage.getItem("token");
     if (!token) return;
     try {
+      const resv = reservations.find(r => r.id === id);
+
+      // calcular horas hasta la reserva (para mensaje)
+      let hoursUntil = Infinity;
+      if (resv) {
+        const dt = new Date(`${resv.date}T${resv.hour}:00`);
+        const now = new Date();
+        hoursUntil = (dt.getTime() - now.getTime()) / (1000 * 60 * 60);
+      }
+
+      await cancelReservation(id, token);
+
+      // actualizar estado local para reflejar la eliminación
       setReservations(prev => prev.map(r => r.id === id ? { ...r, status: "canceled" } : r));
 
+      if (hoursUntil >= 24) {
+        toast.success("Reserva cancelada", { description: "Horario liberado sin multa." });
+      } else {
+        toast("Reserva cancelada. Cancelación con menos de 24h; puede aplicar multa.");
+      }
     } catch (err) {
       console.error("Failed to cancel:", err);
-
+      toast("No se pudo cancelar la reserva. Intenta nuevamente.");
     }
-  }, []);
+  }, [reservations]);
 
   // Hook para añadir una cancha nueva (modo admin)
   // devuelve error en caso de no haber iniciado sesión
@@ -192,6 +219,10 @@ const Index = () => {
       const k = slotKey(fieldId, date, hour);
       const next = new Set(prev);
       next.has(k) ? next.delete(k) : next.add(k);
+      
+      // Guardar en localStorage
+      localStorage.setItem("furbitoBlockedSlots", JSON.stringify(Array.from(next)));
+      
       return next;
     });
   }, []);

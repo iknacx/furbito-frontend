@@ -197,13 +197,14 @@ export default function AdminView({ fields, reservations, blockedSlots, schedule
                     onToggleBlock(scheduleField, scheduleDate, h);
                     toast.success(blocked ? "Bloque liberado" : "Bloque marcado en mantención");
                   }}
-                  className={`h-12 rounded-lg text-sm font-medium border transition-all ${taken ? "bg-muted text-muted-foreground border-border cursor-not-allowed opacity-60" :
-                    blocked ? "bg-destructive/15 text-destructive border-destructive/40" :
+                  className={`h-12 rounded-lg text-sm font-medium border transition-all flex items-center justify-center gap-1 ${taken ? "bg-muted text-muted-foreground border-border cursor-not-allowed opacity-60" :
+                    blocked ? "bg-orange-500/20 text-orange-600 dark:text-orange-400 border-orange-500/50 font-semibold shadow-md" :
                       "bg-primary/10 text-primary border-primary/30 hover:bg-primary/20"
                     }`}
+                  title={taken ? "Horario ocupado" : blocked ? "Hacer clic para liberar" : "Hacer clic para bloquear"}
                 >
                   {h}
-                  {blocked && <Ban className="w-3 h-3 inline ml-1" />}
+                  {blocked && <Wrench className="w-3.5 h-3.5" />}
                 </button>
               );
             })}
