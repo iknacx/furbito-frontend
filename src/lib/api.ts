@@ -100,6 +100,18 @@ export const createReservation = async (reservation: ReservationPayload, token: 
   return res.json();
 }
 
+export const cancelReservation = async (id: number, token: string) => {
+  const res = await fetch(`${BASE_URL}/api/reservations/${id}`, {
+    method: "DELETE",
+    headers: {
+      "Authorization": `Bearer ${token}`,
+    },
+  });
+
+  if (!res.ok) throw new Error("Failed to cancel reservation");
+  return res.json();
+}
+
 export const formatCLP = (n: number) =>
   n.toLocaleString("es-CL", { style: "currency", currency: "CLP", maximumFractionDigits: 0 });
 
