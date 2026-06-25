@@ -11,6 +11,7 @@ interface Props {
   isLoggedIn: boolean;
   userName: string;
   userEmail: string;
+  userPhone?: string;
   reservations: Reservation[];
   onCancel: (id: number) => void;
   onUpdateProfile: (name: string, email: string, phone: string) => void;
@@ -21,12 +22,12 @@ type Tab = "upcoming" | "history" | "profile";
 
 // Apartado de "Mi perfil"
 // se muestran las reservas proximas, además del historial y la configuración de perfil
-export default function PlayerView({ isLoggedIn, userName, userEmail, reservations, onCancel, onUpdateProfile, onLoginClick }: Props) {
+export default function PlayerView({ isLoggedIn, userName, userEmail, userPhone, reservations, onCancel, onUpdateProfile, onLoginClick }: Props) {
   const [tab, setTab] = useState<Tab>("upcoming");
   const [confirming, setConfirming] = useState<number | null>(null);
   const [name, setName] = useState(userName);
   const [email, setEmail] = useState(userEmail);
-  const [phone, setPhone] = useState("+56 9 ");
+  const [phone, setPhone] = useState(userPhone || "+56 9 ");
 
   if (!isLoggedIn) {
     return (

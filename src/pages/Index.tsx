@@ -26,7 +26,7 @@ const Index = () => {
 
   // se guarda el estado del usuario para no
   // repetir queries a la base de datos
-  const [user, setUser] = useState<{ id: number; name: string; email: string, roles: string[] } | null>(null);
+  const [user, setUser] = useState<{ id: number; name: string; email: string, roles: string[], phone?: string } | null>(null);
 
   // lista de canchas disponibles en la plataforma
   const [fields, setFields] = useState<Field[]>([]);
@@ -239,9 +239,18 @@ const Index = () => {
                 isLoggedIn={!!user}
                 userName={user?.name || ""}
                 userEmail={user?.email || ""}
+                userPhone={user?.phone || ""}
                 reservations={userReservations}
                 onCancel={handleCancel}
-                onUpdateProfile={(name, email) => setUser({ name, email, ...user })}
+                onUpdateProfile={(name, email, phone) => {
+                  const next = { ...(user || {}), name, email, ...(phone ? { phone } : {}) } as any;
+                  setUser(next);
+                  try {
+                    localStorage.setItem("user", JSON.stringify(next));
+                  } catch (err) {
+                    console.error("Failed to persist user to localStorage", err);
+                  }
+                }}
                 onLoginClick={() => setAuthOpen(true)}
               />
             )}
