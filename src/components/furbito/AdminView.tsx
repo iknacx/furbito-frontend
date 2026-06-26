@@ -1,49 +1,137 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { CalendarDays, DollarSign, MapPin, Plus, Trophy, Ban, Activity, Clock, User as UserIcon, Wrench } from "lucide-react";
+import { CalendarDays, DollarSign, MapPin, Plus, Trophy, Activity, Clock, User as UserIcon, Wrench, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { COMUNAS, HOURS, formatCLP, todayISO, type Field, type Reservation } from "@/lib/api";
+import { 
+  COMUNAS, 
+  HOURS, 
+  formatCLP, 
+  todayISO, 
+  fetchFieldSchedules, 
+  createSchedule, 
+  updateSchedule, 
+  deleteSchedule,
+  type Field, 
+  type Reservation, 
+  type Schedule
+} from "@/lib/api";
 import { toast } from "sonner";
 
 interface Props {
   fields: Field[];
   reservations: Reservation[];
-  blockedSlots: Set<string>;
-  schedulePrices: Record<string, number>;
-  onAddCourt: (c: Omit<Field, "id" | "ownerId" | "ownerName" | "rating" | "latitude" | "longitude">) => void;
-  onToggleBlock: (fieldId: number, date: string, hour: string) => void;
-  onSetSchedulePrice: (fieldId: number, date: string, hour: string, price?: number) => void;
+  onAddField: (c: Omit<Field, "id" | "ownerId" | "ownerName" | "rating" | "latitude" | "longitude">) => void;
 }
 
-const slotKey = (fId: number, date: string, hour: string) => `${fId}|${date}|${hour}`;
-
-export default function AdminView({ fields, reservations, blockedSlots, schedulePrices, onAddCourt, onToggleBlock, onSetSchedulePrice }: Props) {
+export default function AdminView({ fields, reservations, onAddField }: Props) {
   const [addOpen, setAddOpen] = useState(false);
 
-  // campos para configurar los bloques de horario de las respectivas canchas
+  // Filtros de horarios
   const [scheduleDate, setScheduleDate] = useState(todayISO());
   const [scheduleField, setScheduleField] = useState(fields[0]?.id || 0);
-  const [priceInputs, setPriceInputs] = useState<Record<string, string>>({});
+  
+  // Estado local para los horarios traídos de la base de datos
+  const [schedules, setSchedules] = useState<Schedule[]>([]);
 
   const selectedField = fields.find((field) => field.id === scheduleField);
-
-  useEffect(() => {
-    const basePrice = selectedField?.price ?? 0;
-    setPriceInputs(Object.fromEntries(HOURS.map((hour) => [hour, String(schedulePrices[slotKey(scheduleField, scheduleDate, hour)] ?? basePrice)])));
-  }, [selectedField, scheduleDate, scheduleField, schedulePrices]);
-
   const today = todayISO();
 
-  // filtrar todas las reservas que se han confirmado para hoy
+  // 1. Cargar los horarios desde el backend cuando cambia la cancha o la fecha
+  const loadSchedules = async () => {
+    if (!scheduleField || !scheduleDate) return;
+    try {
+      const data = await fetchFieldSchedules(scheduleField, scheduleDate);
+      setSchedules(data);
+    } catch (err) {
+      toast.error("Error al cargar los horarios de la cancha.");
+    }
+  };
+
+  useEffect(() => {
+    loadSchedules();
+  }, [scheduleField, scheduleDate]);
+
+  // 2. Crear un bloque de horario nuevo
+  const handleAddSchedule = async (hour: string) => {
+    const startHour = parseInt(hour.split(':')[0], 10);
+    const endHour = startHour === 23 ? 0 : startHour + 1;
+    const endStr = `${endHour.toString().padStart(2, '0')}:00`;
+
+    const token = localStorage.getItem("token");
+
+
+    try {
+      await createSchedule(scheduleField, {
+        date: scheduleDate,
+        startTime: hour,
+        endTime: endStr,
+      }, token);
+      toast.success(`Horario de las ${hour} creado exitosamente.`);
+      loadSchedules();
+    } catch (err) {
+      toast.error("Error al crear el horario.");
+    }
+  };
+
+  // 3. Cambiar estado (Habilitado <-> Mantención)
+  const handleToggleStatus = async (schedule: Schedule) => {
+    if (schedule.status === 'reserved') return; // No se puede tocar si está reservado
+    const token = localStorage.getItem("token");
+
+    
+    const newStatus = schedule.status === 'available' ? 'maintenance' : 'available';
+    try {
+      await updateSchedule(schedule.schedule_id, { status: newStatus }, token);
+      toast.success(newStatus === 'available' ? "Bloque habilitado." : "Bloque marcado en mantención.");
+      loadSchedules();
+    } catch (err) {
+      toast.error("Error al cambiar el estado.");
+    }
+  };
+
+  // 4. Eliminar un bloque por completo
+  const handleDeleteSchedule = async (scheduleId: number) => {
+    const token = localStorage.getItem("token");
+
+    if (!confirm("¿Estás seguro de que deseas eliminar este bloque horario?")) return;
+    try {
+      await deleteSchedule(scheduleId, token);
+      toast.success("Bloque horario eliminado.");
+      loadSchedules();
+    } catch (err) {
+      console.log(err)
+      toast.error("Error al eliminar el bloque.");
+    }
+  };
+
+  // 5. Actualizar el precio de un bloque
+  const handleUpdatePrice = async (scheduleId: number, parsedPrice: number) => {
+    if (!selectedField) return;
+    const token = localStorage.getItem("token");
+    
+    // Si el precio ingresado es igual al base de la cancha, enviamos "null" para que vuelva a heredar
+    const finalPrice = parsedPrice === selectedField.price ? null : parsedPrice;
+    
+    try {
+      await updateSchedule(scheduleId, { price: finalPrice }, token);
+      if (finalPrice === null) {
+        toast.success("Precio restaurado al valor base.");
+      } else {
+        toast.success("Precio del bloque actualizado.");
+      }
+      loadSchedules();
+    } catch (err) {
+      toast.error("Error al actualizar el precio.");
+    }
+  };
+
+  // Métricas
   const todayReservations = useMemo(
-    () => reservations.filter((r) => r.date === today && r.status === "confirmed")
-      .sort((a, b) => a.hour.localeCompare(b.hour)),
+    () => reservations.filter((r) => r.date === today && r.status === "confirmed").sort((a, b) => a.hour.localeCompare(b.hour)),
     [reservations, today]
   );
-
-  // cantidad de dinero que se ha ganado durante el día
   const todayIncome = todayReservations.reduce((s, r) => s + r.price, 0);
 
   return (
@@ -92,8 +180,8 @@ export default function AdminView({ fields, reservations, blockedSlots, schedule
           </Button>
         </div>
 
-        <div className="bg-card border border-border rounded-2xl overflow-hidden shadow-card">
-          <table className="w-full text-sm">
+        <div className="bg-card border border-border rounded-2xl overflow-hidden shadow-card overflow-x-auto">
+          <table className="w-full text-sm min-w-[600px]">
             <thead className="bg-secondary text-xs uppercase text-muted-foreground">
               <tr>
                 <th className="text-left px-4 py-3">Cancha</th>
@@ -161,7 +249,7 @@ export default function AdminView({ fields, reservations, blockedSlots, schedule
         <h2 className="font-display text-xl font-bold flex items-center gap-2">
           <Wrench className="w-5 h-5 text-accent" /> Configuración de horarios
         </h2>
-        <div className="bg-card border border-border rounded-2xl p-5 shadow-card space-y-4">
+        <div className="bg-card border border-border rounded-2xl p-5 shadow-card space-y-6">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Cancha</label>
@@ -184,30 +272,62 @@ export default function AdminView({ fields, reservations, blockedSlots, schedule
               />
             </div>
           </div>
-          <p className="text-xs text-muted-foreground">Haz clic en un bloque para bloquearlo/desbloquearlo por mantención.</p>
-          <div className="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-8 gap-2">
-            {HOURS.map((h) => {
-              const blocked = blockedSlots.has(slotKey(scheduleField, scheduleDate, h));
-              const taken = reservations.some((r) => r.fieldId === scheduleField && r.date === scheduleDate && r.hour === h && r.status === "confirmed");
-              return (
-                <button
-                  key={h}
-                  disabled={taken}
-                  onClick={() => {
-                    onToggleBlock(scheduleField, scheduleDate, h);
-                    toast.success(blocked ? "Bloque liberado" : "Bloque marcado en mantención");
-                  }}
-                  className={`h-12 rounded-lg text-sm font-medium border transition-all flex items-center justify-center gap-1 ${taken ? "bg-muted text-muted-foreground border-border cursor-not-allowed opacity-60" :
-                    blocked ? "bg-orange-500/20 text-orange-600 dark:text-orange-400 border-orange-500/50 font-semibold shadow-md" :
-                      "bg-primary/10 text-primary border-primary/30 hover:bg-primary/20"
-                    }`}
-                  title={taken ? "Horario ocupado" : blocked ? "Hacer clic para liberar" : "Hacer clic para bloquear"}
-                >
-                  {h}
-                  {blocked && <Wrench className="w-3.5 h-3.5" />}
-                </button>
-              );
-            })}
+          
+          <div className="space-y-2">
+            <p className="text-xs text-muted-foreground">
+              Haz clic en un bloque para bloquearlo/desbloquearlo. Haz clic en el ícono de basura para eliminarlo.
+            </p>
+            <div className="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-8 gap-2">
+              {HOURS.map((h) => {
+                const schedule = schedules.find(s => s.start_time === h);
+
+                // Si no hay horario creado para esta hora, mostramos un botón para agregarlo
+                if (!schedule) {
+                  return (
+                    <button
+                      key={h}
+                      onClick={() => handleAddSchedule(h)}
+                      className="h-12 rounded-lg text-sm font-medium border border-dashed border-primary/40 text-primary/70 hover:bg-primary/5 hover:text-primary transition-all flex items-center justify-center gap-1"
+                      title="Agregar bloque horario"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> {h}
+                    </button>
+                  );
+                }
+
+                const taken = schedule.status === 'reserved';
+                const blocked = schedule.status === 'maintenance' || schedule.status === 'closed';
+
+                return (
+                  <div key={h} className="relative group">
+                    <button
+                      disabled={taken}
+                      onClick={() => handleToggleStatus(schedule)}
+                      className={`w-full h-12 rounded-lg text-sm font-medium border transition-all flex items-center justify-center gap-1 
+                        ${taken ? "bg-muted text-muted-foreground border-border cursor-not-allowed opacity-60" :
+                        blocked ? "bg-orange-500/20 text-orange-600 dark:text-orange-400 border-orange-500/50 font-semibold shadow-md" :
+                        "bg-primary/10 text-primary border-primary/30 hover:bg-primary/20"
+                      }`}
+                      title={taken ? "Horario ocupado" : blocked ? "Hacer clic para habilitar" : "Hacer clic para bloquear"}
+                    >
+                      {h}
+                      {blocked && <Wrench className="w-3.5 h-3.5" />}
+                    </button>
+                    
+                    {/* Botón flotante para eliminar (solo si no está reservado) */}
+                    {!taken && (
+                      <button
+                        onClick={() => handleDeleteSchedule(schedule.schedule_id)}
+                        className="absolute -top-2 -right-2 bg-destructive text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-md hover:scale-110"
+                        title="Eliminar bloque"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
           <div className="bg-card border border-border rounded-2xl p-4 shadow-card">
@@ -220,54 +340,67 @@ export default function AdminView({ fields, reservations, blockedSlots, schedule
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
-              {HOURS.map((h) => {
-                const currentKey = slotKey(scheduleField, scheduleDate, h);
-                const currentPrice = selectedField ? schedulePrices[currentKey] ?? selectedField.price : 0;
-                const overridden = schedulePrices[currentKey] !== undefined;
-                return (
-                  <div key={h} className="rounded-3xl border border-border bg-secondary p-3">
-                    <div className="flex items-center justify-between mb-2 text-sm text-muted-foreground">
-                      <span>{h}</span>
-                      {overridden && <span className="rounded-full bg-primary/10 text-primary px-2 py-0.5 text-[11px]">modificado</span>}
-                    </div>
-                    <Input
-                      type="number"
-                      min={0}
-                      value={priceInputs[h] ?? ""}
-                      onChange={(e) => setPriceInputs((prev) => ({ ...prev, [h]: e.target.value }))}
-                      onBlur={() => {
-                        const parsed = Number(priceInputs[h]);
-                        if (Number.isNaN(parsed) || parsed < 0) return;
-
-                        if (selectedField) {
-                          const basePrice = selectedField.price;
-                          if (parsed === basePrice) {
-                            onSetSchedulePrice(scheduleField, scheduleDate, h, undefined);
-                            toast.success("Precio restaurado", { description: `${h} hereda el precio base ${formatCLP(basePrice)}` });
-                          } else {
-                            onSetSchedulePrice(scheduleField, scheduleDate, h, parsed);
-                            toast.success("Precio actualizado", { description: `${h} ahora cuesta ${formatCLP(parsed)}` });
-                          }
-                        }
-                      }}
-                      className="w-full"
-                    />
-                    <p className="mt-2 text-xs text-muted-foreground">Actual: {formatCLP(currentPrice)}</p>
-                  </div>
-                );
-              })}
+              {/* Solo mostramos inputs para los horarios que realmente existen en la base de datos */}
+              {schedules.length === 0 ? (
+                <p className="text-sm text-muted-foreground col-span-full">No hay horarios creados para este día.</p>
+              ) : (
+                schedules.map((schedule) => (
+                  <SchedulePriceInput 
+                    key={schedule.schedule_id} 
+                    schedule={schedule} 
+                    basePrice={selectedField?.price || 0}
+                    onSave={(newPrice) => handleUpdatePrice(schedule.schedule_id, newPrice)}
+                  />
+                ))
+              )}
             </div>
           </div>
         </div>
       </section>
 
-      <AddFieldDialog open={addOpen} onClose={() => setAddOpen(false)} onAdd={onAddCourt} />
+      <AddFieldDialog open={addOpen} onClose={() => setAddOpen(false)} onAdd={onAddField} />
     </div>
   );
 }
 
-// Al apretar el botón para añadir cancha, se abre este dialogo
-// para introducir la información de la cancha
+// Sub-componente para aislar el estado del input de precio de cada horario
+function SchedulePriceInput({ schedule, basePrice, onSave }: { schedule: Schedule, basePrice: number, onSave: (price: number) => void }) {
+  const [localPrice, setLocalPrice] = useState(schedule.final_price.toString());
+  const overridden = schedule.final_price !== basePrice;
+
+  // Actualizar el valor local si el precio cambia desde arriba (por ej. al heredar)
+  useEffect(() => {
+    setLocalPrice(schedule.final_price.toString());
+  }, [schedule.final_price]);
+
+  const handleBlur = () => {
+    const parsed = Number(localPrice);
+    if (Number.isNaN(parsed) || parsed < 0) return;
+    if (parsed !== schedule.final_price) {
+      onSave(parsed);
+    }
+  };
+
+  return (
+    <div className="rounded-2xl border border-border bg-secondary/50 p-3">
+      <div className="flex items-center justify-between mb-2 text-sm text-muted-foreground">
+        <span>{schedule.start_time}</span>
+        {overridden && <span className="rounded-full bg-primary/10 text-primary px-2 py-0.5 text-[11px] font-medium">modificado</span>}
+      </div>
+      <Input
+        type="number"
+        min={0}
+        value={localPrice}
+        onChange={(e) => setLocalPrice(e.target.value)}
+        onBlur={handleBlur}
+        className="w-full bg-background"
+      />
+      <p className="mt-2 text-xs text-muted-foreground">Guardado: {formatCLP(schedule.final_price)}</p>
+    </div>
+  );
+}
+
+// Dialogo para crear canchas
 function AddFieldDialog({ open, onClose, onAdd }: { open: boolean; onClose: () => void; onAdd: (c: Omit<Field, "id" | "ownerId" | "ownerName" | "rating" | "latitude" | "longitude">) => void }) {
   const [name, setName] = useState("");
   const [location, setLocation] = useState("Providencia");
@@ -287,7 +420,6 @@ function AddFieldDialog({ open, onClose, onAdd }: { open: boolean; onClose: () =
             e.preventDefault();
             if (!name) return;
             onAdd({ name, location, surface, price, capacity, image });
-            toast.success("Cancha registrada");
             setName("");
             onClose();
           }}
