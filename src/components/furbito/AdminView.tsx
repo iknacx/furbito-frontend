@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { CalendarDays, DollarSign, MapPin, Plus, Trophy, Activity, Clock, User as UserIcon, Wrench, Trash2 } from "lucide-react";
+import { CalendarDays, DollarSign, MapPin, Plus, Trophy, Activity, Clock, User as UserIcon, Wrench, Trash2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -14,6 +14,7 @@ import {
   createSchedule, 
   updateSchedule, 
   deleteSchedule,
+  fetchReservations,
   type Field, 
   type Reservation, 
   type Schedule
@@ -22,14 +23,17 @@ import { toast } from "sonner";
 
 interface Props {
   fields: Field[];
-  reservations: Reservation[];
   onAddField: (c: Omit<Field, "id" | "ownerId" | "ownerName" | "rating" | "latitude" | "longitude">) => void;
   onDeleteField: (id: number) => void;
 }
 
-export default function AdminView({ fields, reservations, onAddField, onDeleteField }: Props) {
+export default function AdminView({ fields, onAddField, onDeleteField }: Props) {
   const [addOpen, setAddOpen] = useState(false);
   const [confirmDeleteField, setConfirmDeleteField] = useState<number | null>(null);
+
+  // Único estado local para el manejo de las reservas del Administrador
+  const [reservations, setReservations] = useState<Reservation[]>([]);
+  const [isRefreshingRes, setIsRefreshingRes] = useState(false);
 
   // Filtros de horarios
   const [scheduleDate, setScheduleDate] = useState(todayISO());
@@ -40,6 +44,27 @@ export default function AdminView({ fields, reservations, onAddField, onDeleteFi
 
   const selectedField = fields.find((field) => field.id === scheduleField);
   const today = todayISO();
+
+  // Función para consultar las reservas directo en la base de datos
+  const loadAdminReservations = async () => {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+    
+    try {
+      setIsRefreshingRes(true);
+      const data = await fetchReservations(token);
+      setReservations(data);
+    } catch (err) {
+      toast.error("Error al sincronizar las reservas recientes.");
+    } finally {
+      setIsRefreshingRes(false);
+    }
+  };
+
+  // Carga automática al montar el componente de administración
+  useEffect(() => {
+    loadAdminReservations();
+  }, []);
 
   // Asegurarnos de que el select de horarios tenga un valor válido si se borra una cancha
   useEffect(() => {
@@ -129,6 +154,7 @@ export default function AdminView({ fields, reservations, onAddField, onDeleteFi
     }
   };
 
+  // Métricas basadas única y exclusivamente en el estado local de reservas
   const todayReservations = useMemo(
     () => reservations.filter((r) => r.date === today && r.status === "confirmed").sort((a, b) => a.hour.localeCompare(b.hour)),
     [reservations, today]
@@ -222,11 +248,22 @@ export default function AdminView({ fields, reservations, onAddField, onDeleteFi
         </div>
       </section>
 
-      {/* Agenda del día y Configuración de Horarios (Sin cambios) */}
       <section className="space-y-4">
-        <h2 className="font-display text-xl font-bold flex items-center gap-2">
-          <Clock className="w-5 h-5 text-primary" /> Agenda de hoy ({today})
-        </h2>
+        <div className="flex items-center justify-between">
+          <h2 className="font-display text-xl font-bold flex items-center gap-2">
+            <Clock className="w-5 h-5 text-primary" /> Agenda de hoy ({today})
+          </h2>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={loadAdminReservations}
+            disabled={isRefreshingRes}
+            className="flex items-center gap-2 text-muted-foreground hover:text-foreground"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingRes ? "animate-spin text-primary" : ""}`} />
+            Actualizar
+          </Button>
+        </div>
         <div className="bg-card border border-border rounded-2xl divide-y divide-border shadow-card">
           {todayReservations.length === 0 && (
             <div className="p-8 text-center text-muted-foreground">No hay reservas para hoy.</div>
@@ -368,7 +405,6 @@ export default function AdminView({ fields, reservations, onAddField, onDeleteFi
 
       <AddFieldDialog open={addOpen} onClose={() => setAddOpen(false)} onAdd={onAddField} />
       
-      {/* Diálogo de confirmación para eliminar cancha */}
       <AlertDialog open={!!confirmDeleteField} onOpenChange={(o) => !o && setConfirmDeleteField(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>

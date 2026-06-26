@@ -210,7 +210,6 @@ const Index = () => {
             {view === "admin" && isAdmin && (
               <AdminView
                 fields={fields}
-                reservations={reservations}
                 onAddField={handleAddField}
                 onDeleteField={handleDeleteField}
               />
