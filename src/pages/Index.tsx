@@ -7,7 +7,7 @@ import PlayerView from "@/components/furbito/PlayerView";
 import AdminView from "@/components/furbito/AdminView";
 import AuthModal from "@/components/furbito/AuthModal";
 
-import { createField, createReservation, fetchFields, fetchReservations, cancelReservation, signIn, signUp, type Field, type Reservation, type ReservationPayload } from "@/lib/api";
+import { createField, deleteField, createReservation, fetchFields, fetchReservations, cancelReservation, signIn, signUp, type Field, type Reservation, type ReservationPayload } from "@/lib/api";
 import { toast } from "sonner";
 
 const Index = () => {
@@ -126,7 +126,7 @@ const Index = () => {
   }, []);
 
   // Añadir una cancha nueva (Solo Admin)
-  const handleAddCourt = useCallback(async (f: Omit<Field, "id" | "ownerId" | "rating" | "latitude" | "longitude">) => {
+  const handleAddField = useCallback(async (f: Omit<Field, "id" | "ownerId" | "rating" | "latitude" | "longitude">) => {
     const currentToken = localStorage.getItem("token");
     if (!currentToken) return;
 
@@ -144,6 +144,20 @@ const Index = () => {
     } catch (err) {
       console.error("Failed to add field:", err);
       toast.error("Error al registrar la cancha");
+    }
+  }, []);
+
+  const handleDeleteField = useCallback(async (id: number) => {
+    const currentToken = localStorage.getItem("token");
+    if (!currentToken) return;
+
+    try {
+      await deleteField(id, currentToken);
+      setFields(prev => prev.filter(f => f.id !== id));
+      toast.success("Cancha eliminada exitosamente");
+    } catch (err) {
+      console.error("Failed to delete field:", err);
+      toast.error("Error al eliminar la cancha");
     }
   }, []);
 
@@ -192,13 +206,13 @@ const Index = () => {
                 onLoginClick={() => setAuthOpen(true)}
               />
             )}
-            
+
             {view === "admin" && isAdmin && (
               <AdminView
-                token={token || ""}
                 fields={fields}
                 reservations={reservations}
-                onAddCourt={handleAddCourt}
+                onAddField={handleAddField}
+                onDeleteField={handleDeleteField}
               />
             )}
           </motion.div>

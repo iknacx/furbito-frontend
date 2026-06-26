@@ -131,6 +131,18 @@ export const createField = async (field: Omit<Field, 'id' | 'ownerId' | 'rating'
   return res.json();
 };
 
+// Exportar junto al resto de funciones de canchas en api.ts
+export const deleteField = async (id: number, token: string) => {
+  const res = await fetch(`${BASE_URL}/api/fields/${id}`, {
+    method: "DELETE",
+    headers: {
+      "Authorization": `Bearer ${token}`
+    },
+  });
+  if (!res.ok) throw new Error("Failed to delete field");
+  return res.json();
+};
+
 // ==========================================
 // HORARIOS (SCHEDULES)
 // ==========================================

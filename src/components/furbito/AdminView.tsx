@@ -4,6 +4,7 @@ import { CalendarDays, DollarSign, MapPin, Plus, Trophy, Activity, Clock, User a
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { 
   COMUNAS, 
   HOURS, 
@@ -23,10 +24,12 @@ interface Props {
   fields: Field[];
   reservations: Reservation[];
   onAddField: (c: Omit<Field, "id" | "ownerId" | "ownerName" | "rating" | "latitude" | "longitude">) => void;
+  onDeleteField: (id: number) => void;
 }
 
-export default function AdminView({ fields, reservations, onAddField }: Props) {
+export default function AdminView({ fields, reservations, onAddField, onDeleteField }: Props) {
   const [addOpen, setAddOpen] = useState(false);
+  const [confirmDeleteField, setConfirmDeleteField] = useState<number | null>(null);
 
   // Filtros de horarios
   const [scheduleDate, setScheduleDate] = useState(todayISO());
@@ -38,9 +41,18 @@ export default function AdminView({ fields, reservations, onAddField }: Props) {
   const selectedField = fields.find((field) => field.id === scheduleField);
   const today = todayISO();
 
-  // 1. Cargar los horarios desde el backend cuando cambia la cancha o la fecha
+  // Asegurarnos de que el select de horarios tenga un valor válido si se borra una cancha
+  useEffect(() => {
+    if (fields.length > 0 && !fields.find(f => f.id === scheduleField)) {
+      setScheduleField(fields[0].id);
+    }
+  }, [fields, scheduleField]);
+
   const loadSchedules = async () => {
-    if (!scheduleField || !scheduleDate) return;
+    if (!scheduleField || !scheduleDate) {
+      setSchedules([]);
+      return;
+    }
     try {
       const data = await fetchFieldSchedules(scheduleField, scheduleDate);
       setSchedules(data);
@@ -53,21 +65,18 @@ export default function AdminView({ fields, reservations, onAddField }: Props) {
     loadSchedules();
   }, [scheduleField, scheduleDate]);
 
-  // 2. Crear un bloque de horario nuevo
   const handleAddSchedule = async (hour: string) => {
     const startHour = parseInt(hour.split(':')[0], 10);
     const endHour = startHour === 23 ? 0 : startHour + 1;
     const endStr = `${endHour.toString().padStart(2, '0')}:00`;
-
     const token = localStorage.getItem("token");
-
 
     try {
       await createSchedule(scheduleField, {
         date: scheduleDate,
         startTime: hour,
         endTime: endStr,
-      }, token);
+      }, token!);
       toast.success(`Horario de las ${hour} creado exitosamente.`);
       loadSchedules();
     } catch (err) {
@@ -75,15 +84,13 @@ export default function AdminView({ fields, reservations, onAddField }: Props) {
     }
   };
 
-  // 3. Cambiar estado (Habilitado <-> Mantención)
   const handleToggleStatus = async (schedule: Schedule) => {
-    if (schedule.status === 'reserved') return; // No se puede tocar si está reservado
+    if (schedule.status === 'reserved') return; 
     const token = localStorage.getItem("token");
-
-    
     const newStatus = schedule.status === 'available' ? 'maintenance' : 'available';
+    
     try {
-      await updateSchedule(schedule.schedule_id, { status: newStatus }, token);
+      await updateSchedule(schedule.schedule_id, { status: newStatus }, token!);
       toast.success(newStatus === 'available' ? "Bloque habilitado." : "Bloque marcado en mantención.");
       loadSchedules();
     } catch (err) {
@@ -91,31 +98,26 @@ export default function AdminView({ fields, reservations, onAddField }: Props) {
     }
   };
 
-  // 4. Eliminar un bloque por completo
   const handleDeleteSchedule = async (scheduleId: number) => {
     const token = localStorage.getItem("token");
-
     if (!confirm("¿Estás seguro de que deseas eliminar este bloque horario?")) return;
+    
     try {
-      await deleteSchedule(scheduleId, token);
+      await deleteSchedule(scheduleId, token!);
       toast.success("Bloque horario eliminado.");
       loadSchedules();
     } catch (err) {
-      console.log(err)
       toast.error("Error al eliminar el bloque.");
     }
   };
 
-  // 5. Actualizar el precio de un bloque
   const handleUpdatePrice = async (scheduleId: number, parsedPrice: number) => {
     if (!selectedField) return;
     const token = localStorage.getItem("token");
-    
-    // Si el precio ingresado es igual al base de la cancha, enviamos "null" para que vuelva a heredar
     const finalPrice = parsedPrice === selectedField.price ? null : parsedPrice;
     
     try {
-      await updateSchedule(scheduleId, { price: finalPrice }, token);
+      await updateSchedule(scheduleId, { price: finalPrice }, token!);
       if (finalPrice === null) {
         toast.success("Precio restaurado al valor base.");
       } else {
@@ -127,7 +129,6 @@ export default function AdminView({ fields, reservations, onAddField }: Props) {
     }
   };
 
-  // Métricas
   const todayReservations = useMemo(
     () => reservations.filter((r) => r.date === today && r.status === "confirmed").sort((a, b) => a.hour.localeCompare(b.hour)),
     [reservations, today]
@@ -136,13 +137,11 @@ export default function AdminView({ fields, reservations, onAddField }: Props) {
 
   return (
     <div className="space-y-8">
-      {/* Cabecera */}
       <div>
         <h1 className="font-display text-3xl font-bold">Panel de administración</h1>
         <p className="text-muted-foreground">Gestiona tus canchas, reservas y horarios.</p>
       </div>
 
-      {/* Métricas */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {[
           { label: "Reservas de hoy", value: todayReservations.length, icon: CalendarDays, color: "from-primary to-primary-glow" },
@@ -169,7 +168,6 @@ export default function AdminView({ fields, reservations, onAddField }: Props) {
         ))}
       </div>
 
-      {/* Manejo de canchas */}
       <section className="space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="font-display text-xl font-bold flex items-center gap-2">
@@ -188,10 +186,15 @@ export default function AdminView({ fields, reservations, onAddField }: Props) {
                 <th className="text-left px-4 py-3">Comuna</th>
                 <th className="text-left px-4 py-3">Superficie</th>
                 <th className="text-left px-4 py-3">Precio</th>
-                <th className="text-left px-4 py-3">Estado</th>
+                <th className="text-center px-4 py-3">Acciones</th>
               </tr>
             </thead>
             <tbody>
+              {fields.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="text-center py-8 text-muted-foreground">No tienes canchas registradas.</td>
+                </tr>
+              )}
               {fields.map((c) => (
                 <tr key={c.id} className="border-t border-border hover:bg-secondary/40">
                   <td className="px-4 py-3 font-medium flex items-center gap-3">
@@ -201,10 +204,16 @@ export default function AdminView({ fields, reservations, onAddField }: Props) {
                   <td className="px-4 py-3 text-muted-foreground"><MapPin className="w-3.5 h-3.5 inline mr-1" />{c.location}</td>
                   <td className="px-4 py-3">{c.surface}</td>
                   <td className="px-4 py-3 font-semibold text-primary">{formatCLP(c.price)}</td>
-                  <td className="px-4 py-3">
-                    <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary flex items-center gap-1 w-fit">
-                      <Activity className="w-3 h-3" /> Activa
-                    </span>
+                  <td className="px-4 py-3 text-center">
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      onClick={() => setConfirmDeleteField(c.id)}
+                      className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                      title="Eliminar cancha"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
                   </td>
                 </tr>
               ))}
@@ -213,7 +222,7 @@ export default function AdminView({ fields, reservations, onAddField }: Props) {
         </div>
       </section>
 
-      {/* Agenda del día */}
+      {/* Agenda del día y Configuración de Horarios (Sin cambios) */}
       <section className="space-y-4">
         <h2 className="font-display text-xl font-bold flex items-center gap-2">
           <Clock className="w-5 h-5 text-primary" /> Agenda de hoy ({today})
@@ -244,7 +253,6 @@ export default function AdminView({ fields, reservations, onAddField }: Props) {
         </div>
       </section>
 
-      {/* Configuración de horarios */}
       <section className="space-y-4">
         <h2 className="font-display text-xl font-bold flex items-center gap-2">
           <Wrench className="w-5 h-5 text-accent" /> Configuración de horarios
@@ -256,8 +264,10 @@ export default function AdminView({ fields, reservations, onAddField }: Props) {
               <select
                 value={scheduleField}
                 onChange={(e) => setScheduleField(+e.target.value)}
+                disabled={fields.length === 0}
                 className="w-full h-10 px-3 rounded-lg bg-secondary border border-border text-sm"
               >
+                {fields.length === 0 && <option value={0}>Sin canchas</option>}
                 {fields.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
@@ -281,13 +291,13 @@ export default function AdminView({ fields, reservations, onAddField }: Props) {
               {HOURS.map((h) => {
                 const schedule = schedules.find(s => s.start_time === h);
 
-                // Si no hay horario creado para esta hora, mostramos un botón para agregarlo
                 if (!schedule) {
                   return (
                     <button
                       key={h}
                       onClick={() => handleAddSchedule(h)}
-                      className="h-12 rounded-lg text-sm font-medium border border-dashed border-primary/40 text-primary/70 hover:bg-primary/5 hover:text-primary transition-all flex items-center justify-center gap-1"
+                      disabled={!scheduleField}
+                      className="h-12 rounded-lg text-sm font-medium border border-dashed border-primary/40 text-primary/70 hover:bg-primary/5 hover:text-primary transition-all flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
                       title="Agregar bloque horario"
                     >
                       <Plus className="w-3.5 h-3.5" /> {h}
@@ -314,7 +324,6 @@ export default function AdminView({ fields, reservations, onAddField }: Props) {
                       {blocked && <Wrench className="w-3.5 h-3.5" />}
                     </button>
                     
-                    {/* Botón flotante para eliminar (solo si no está reservado) */}
                     {!taken && (
                       <button
                         onClick={() => handleDeleteSchedule(schedule.schedule_id)}
@@ -340,7 +349,6 @@ export default function AdminView({ fields, reservations, onAddField }: Props) {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
-              {/* Solo mostramos inputs para los horarios que realmente existen en la base de datos */}
               {schedules.length === 0 ? (
                 <p className="text-sm text-muted-foreground col-span-full">No hay horarios creados para este día.</p>
               ) : (
@@ -359,16 +367,40 @@ export default function AdminView({ fields, reservations, onAddField }: Props) {
       </section>
 
       <AddFieldDialog open={addOpen} onClose={() => setAddOpen(false)} onAdd={onAddField} />
+      
+      {/* Diálogo de confirmación para eliminar cancha */}
+      <AlertDialog open={!!confirmDeleteField} onOpenChange={(o) => !o && setConfirmDeleteField(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar esta cancha de forma permanente?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta acción eliminará la cancha, todos sus horarios y <b>todas las reservas asociadas</b>. Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (confirmDeleteField) {
+                  onDeleteField(confirmDeleteField);
+                  setConfirmDeleteField(null);
+                }
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Sí, eliminar cancha
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
 
-// Sub-componente para aislar el estado del input de precio de cada horario
 function SchedulePriceInput({ schedule, basePrice, onSave }: { schedule: Schedule, basePrice: number, onSave: (price: number) => void }) {
   const [localPrice, setLocalPrice] = useState(schedule.final_price.toString());
   const overridden = schedule.final_price !== basePrice;
 
-  // Actualizar el valor local si el precio cambia desde arriba (por ej. al heredar)
   useEffect(() => {
     setLocalPrice(schedule.final_price.toString());
   }, [schedule.final_price]);
@@ -400,7 +432,6 @@ function SchedulePriceInput({ schedule, basePrice, onSave }: { schedule: Schedul
   );
 }
 
-// Dialogo para crear canchas
 function AddFieldDialog({ open, onClose, onAdd }: { open: boolean; onClose: () => void; onAdd: (c: Omit<Field, "id" | "ownerId" | "ownerName" | "rating" | "latitude" | "longitude">) => void }) {
   const [name, setName] = useState("");
   const [location, setLocation] = useState("Providencia");
